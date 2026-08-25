@@ -13,8 +13,9 @@ from .serializers import (
     ChangePasswordSerializer, ForgotPasswordSerializer,
     ResetPasswordSerializer
 )
+from .services import UserService
+from .permissions import IsOwnerOrAdmin
 from core.permissions import IsAdminUser
-from core.utils import generate_reset_token, get_expiry_time
 
 class RegisterView(generics.CreateAPIView):
     """
@@ -64,7 +65,7 @@ class LoginView(APIView):
 
 class LogoutView(APIView):
     """
-    Logout user
+    Logout user (blacklist refresh token)
     POST /api/auth/logout/
     """
     permission_classes = (permissions.IsAuthenticated,)
@@ -77,7 +78,7 @@ class LogoutView(APIView):
                 token.blacklist()
         except Exception:
             pass
-        return Response({'message': 'Logout successful'})
+        return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
 
 class RefreshTokenView(TokenRefreshView):
     """
@@ -97,6 +98,20 @@ class CurrentUserView(generics.RetrieveUpdateAPIView):
     
     def get_object(self):
         return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        # Update user using service
+        user = UserService.update_user(instance, serializer.validated_data)
+        
+        return Response({
+            'message': 'Profile updated successfully',
+            'user': UserSerializer(user).data
+        })
 
 class ChangePasswordView(APIView):
     """
@@ -109,16 +124,14 @@ class ChangePasswordView(APIView):
         serializer = ChangePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        user = request.user
-        
-        if not user.check_password(serializer.validated_data['current_password']):
-            return Response(
-                {'error': 'Current password is incorrect'},
-                status=status.HTTP_400_BAD_REQUEST
+        try:
+            UserService.change_password(
+                request.user,
+                serializer.validated_data['current_password'],
+                serializer.validated_data['new_password']
             )
-        
-        user.set_password(serializer.validated_data['new_password'])
-        user.save()
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
         return Response({'message': 'Password changed successfully'})
 
@@ -138,44 +151,20 @@ class ForgotPasswordView(APIView):
         
         if not user:
             return Response(
-                {'error': 'User not found'},
+                {'error': 'No user found with this email'},
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Delete existing tokens
-        PasswordResetToken.objects.filter(user=user).delete()
+        # Generate reset token
+        token = UserService.generate_reset_token(user)
         
-        # Create new token
-        token = generate_reset_token()
-        expires_at = get_expiry_time(hours=1)
-        PasswordResetToken.objects.create(
-            user=user,
-            token=token,
-            expires_at=expires_at
-        )
+        # Send email with reset link
+        UserService.send_reset_email(user, token)
         
-        # Send email
-        reset_link = f"{settings.FRONTEND_URL}/reset-password/{token}"
-        
-        subject = 'Password Reset Request'
-        message = f"""
-        Hello {user.full_name},
-        
-        You requested to reset your password. Click the link below to reset your password:
-        
-        {reset_link}
-        
-        This link will expire in 1 hour.
-        
-        If you did not request this, please ignore this email.
-        
-        Best regards,
-        Ajali! Team
-        """
-        
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
-        
-        return Response({'message': 'Password reset email sent'})
+        return Response({
+            'message': 'Password reset email sent. Please check your inbox.',
+            'reset_token': token  # Remove in production
+        }, status=status.HTTP_200_OK)
 
 class ResetPasswordView(APIView):
     """
@@ -191,24 +180,50 @@ class ResetPasswordView(APIView):
         token = serializer.validated_data['token']
         new_password = serializer.validated_data['new_password']
         
-        reset_token = PasswordResetToken.objects.filter(token=token).first()
-        
-        if not reset_token:
-            return Response(
-                {'error': 'Invalid reset token'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if not reset_token.is_valid():
-            return Response(
-                {'error': 'Reset token expired or already used'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        user = reset_token.user
-        user.set_password(new_password)
-        user.save()
-        
-        reset_token.mark_used()
+        try:
+            UserService.reset_password(token, new_password)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
         return Response({'message': 'Password reset successful'})
+
+class UserListView(generics.ListAPIView):
+    """
+    List all users (Admin only)
+    GET /api/auth/users/
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = (IsAdminUser,)
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        role = self.request.query_params.get('role')
+        if role:
+            queryset = queryset.filter(role=role)
+        return queryset
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Get, update, or delete user (Admin only)
+    GET /api/auth/users/{id}/
+    PUT /api/auth/users/{id}/
+    DELETE /api/auth/users/{id}/
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = (IsAdminUser,)
+    lookup_field = 'id'
+    
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        if user == request.user:
+            return Response(
+                {'error': 'Cannot delete your own account'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user.is_active = False
+        user.save()
+        return Response({
+            'message': 'User deactivated successfully'
+        }, status=status.HTTP_200_OK)
