@@ -1,5 +1,5 @@
 # Ajali! Backend API
-
+<!-- for development -->
 Emergency Incident Reporting System - Django REST API
 
 ## Tech Stack
