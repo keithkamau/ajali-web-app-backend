@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.log
+
+# Django
+*.pot
+*.pyc
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+static/
+staticfiles/
+mediafiles/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+tests/__pycache__/
+
+# Migration files
+*/migrations/*.py
+!*/migrations/__init__.py
+
+# Logs
+logs/
+*.log
+
+# Secret files
+*.pem
+*.key
+*.crt
+*.p12
+*.secret
+*.p8
+
+# Build
+dist/
+build/
+*.egg-info/
