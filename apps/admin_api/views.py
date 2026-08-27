@@ -34,6 +34,7 @@ from .serializers import (
     AdminIncidentSerializer,
     AdminIncidentStatusSerializer,
     AdminStatusHistorySerializer,
+    BulkIncidentStatusSerializer,
 )
 
 class AdminActionLogListView(ListAPIView):
@@ -253,3 +254,70 @@ class AdminIncidentStatusHistoryView(generics.ListAPIView):
         return incident.status_history.select_related(
             "changed_by"
         ).all()
+
+class AdminBulkIncidentStatusView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def put(self, request):
+        serializer = BulkIncidentStatusSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        incident_ids = serializer.validated_data["ids"]
+        new_status = serializer.validated_data["status"]
+        comment = serializer.validated_data.get("comment", "")
+
+        incidents = Incident.objects.filter(
+            id__in=incident_ids
+        )
+
+        if incidents.count() != len(set(incident_ids)):
+            return Response(
+                {
+                    "detail": "One or more incidents were not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        updated_incidents = []
+
+        with transaction.atomic():
+            for incident in incidents:
+                if incident.status == new_status:
+                    continue
+
+                incident = change_status(
+                    incident=incident,
+                    changed_by=request.user,
+                    status=new_status,
+                    comment=comment
+                )
+
+                updated_incidents.append(incident)
+
+            AdminActionLog.objects.create(
+                admin=request.user,
+                action="bulk_update_incident_status",
+                details={
+                    "incident_ids": [
+                        str(incident_id)
+                        for incident_id in incident_ids
+                    ],
+                    "new_status": new_status,
+                    "updated_count": len(updated_incidents),
+                },
+            )
+
+        return Response(
+            {
+                "message": "Incident statuses updated successfully.",
+                "updated_count": len(updated_incidents),
+                "incidents": AdminIncidentSerializer(
+                    updated_incidents,
+                    many=True
+                ).data,
+            },
+            status=status.HTTP_200_OK
+        )

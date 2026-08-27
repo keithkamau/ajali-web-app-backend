@@ -148,3 +148,19 @@ class AdminStatusHistorySerializer(serializers.ModelSerializer):
             "changed_at",
         ]
         read_only_fields = fields
+
+class BulkIncidentStatusSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False
+    )
+
+    status = serializers.ChoiceField(
+        choices=Incident.Status.choices
+    )
+
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000
+    )
