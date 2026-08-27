@@ -9,6 +9,7 @@ from rest_framework import serializers
 
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
+from django.db.models import Count
 
 from django.db import transaction
 from rest_framework import status, generics
@@ -320,4 +321,46 @@ class AdminBulkIncidentStatusView(APIView):
                 ).data,
             },
             status=status.HTTP_200_OK
+        )
+
+class AdminStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        stats = Incident.objects.aggregate(
+            total=Count("id"),
+            reported=Count(
+                "id",
+                filter=Q(status=Incident.Status.REPORTED)
+            ),
+            under_review=Count(
+                "id",
+                filter=Q(status=Incident.Status.UNDER_REVIEW)
+            ),
+            in_progress=Count(
+                "id",
+                filter=Q(status=Incident.Status.IN_PROGRESS)
+            ),
+            resolved=Count(
+                "id",
+                filter=Q(status=Incident.Status.RESOLVED)
+            ),
+            rejected=Count(
+                "id",
+                filter=Q(status=Incident.Status.REJECTED)
+            ),
+        )
+
+        return Response(stats)
+
+class AdminRecentIncidentsView(generics.ListAPIView):
+    serializer_class = AdminIncidentSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get_queryset(self):
+        return (
+            Incident.objects
+            .select_related("user")
+            .prefetch_related("media")
+            .order_by("-created_at")[:10]
         )

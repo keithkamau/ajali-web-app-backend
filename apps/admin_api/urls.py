@@ -9,6 +9,7 @@ from .views import (
     AdminIncidentStatusHistoryView,
     AdminBulkIncidentStatusView,
     AdminStatsView,
+    AdminRecentIncidentsView,
     # AdminUserListView,
     AdminUserRoleUpdateView,
 )
@@ -51,6 +52,12 @@ urlpatterns = [
         name="admin-incident-list",
     ),
 
+    path(
+    "incidents/recent/",
+    AdminRecentIncidentsView.as_view(),
+    name="admin-recent-incidents",
+    ),
+    
     path(
         "incidents/bulk-status/",
         AdminBulkIncidentStatusView.as_view(),
