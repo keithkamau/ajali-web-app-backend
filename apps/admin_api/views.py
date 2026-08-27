@@ -239,3 +239,17 @@ class AdminIncidentStatusUpdateView(APIView):
             AdminIncidentSerializer(incident).data,
             status=status.HTTP_200_OK
         )
+
+class AdminIncidentStatusHistoryView(generics.ListAPIView):
+    serializer_class = AdminStatusHistorySerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get_queryset(self):
+        incident = get_object_or_404(
+            Incident,
+            pk=self.kwargs["pk"]
+        )
+
+        return incident.status_history.select_related(
+            "changed_by"
+        ).all()
