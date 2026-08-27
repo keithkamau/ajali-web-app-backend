@@ -10,9 +10,9 @@ class IncidentAdmin(admin.ModelAdmin):
 
 @admin.register(IncidentStatusHistory)
 class IncidentStatusHistoryAdmin(admin.ModelAdmin):
-    list_display = ('incident', 'new_status', 'changed_by', 'created_at')
+    list_display = ('incident', 'new_status', 'changed_by', 'changed_at')
     list_filter = ('new_status',)
-    readonly_fields = ('created_at',)
+    readonly_fields = ('changed_at',)
 
 @admin.register(IncidentMedia)
 class IncidentMediaAdmin(admin.ModelAdmin):

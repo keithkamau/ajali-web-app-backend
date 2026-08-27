@@ -3,6 +3,10 @@ from django.urls import path
 from .views import (
     AdminActionLogListView,
     AdminUserDetailView,
+    AdminIncidentDetailView,
+    AdminIncidentListView,
+    AdminIncidentStatusUpdateView,
+    AdminStatsView,
     AdminUserListView,
     AdminUserRoleUpdateView,
 )
@@ -22,6 +26,12 @@ urlpatterns = [
     ),
 
     path(
+    "incidents/stats/",
+    AdminStatsView.as_view(),
+    name="admin-incident-stats",
+    ),
+
+    path(
         "users/<uuid:id>/",
         AdminUserDetailView.as_view(),
         name="admin-user-detail",
@@ -31,5 +41,23 @@ urlpatterns = [
         "users/<uuid:id>/role/",
         AdminUserRoleUpdateView.as_view(),
         name="admin-user-role-update",
+    ),
+
+    path(
+    "incidents/",
+    AdminIncidentListView.as_view(),
+    name="admin-incident-list",
+),
+
+    path(
+        "incidents/<uuid:pk>/",
+        AdminIncidentDetailView.as_view(),
+        name="admin-incident-detail",
+    ),
+
+    path(
+        "incidents/<uuid:pk>/status/",
+        AdminIncidentStatusUpdateView.as_view(),
+        name="admin-incident-status-update",
     ),
 ]

@@ -7,8 +7,11 @@ from .models import AdminActionLog
 from .serializers import AdminActionLogSerializer
 from rest_framework import serializers
 
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+
 from django.db import transaction
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.generics import ListAPIView, RetrieveAPIView, RetrieveDestroyAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -17,11 +20,20 @@ from rest_framework.views import APIView
 from core.permissions import IsAdminUser
 from apps.users.models import User
 
+from apps.incidents.models import (
+    Incident,
+    IncidentStatusHistory,
+)
+from apps.incidents.services import change_status
+
 from .models import AdminActionLog
 from .serializers import (
     AdminActionLogSerializer,
     AdminUserRoleSerializer,
     AdminUserSerializer,
+    AdminIncidentSerializer,
+    AdminIncidentStatusSerializer,
+    AdminStatusHistorySerializer,
 )
 
 class AdminActionLogListView(ListAPIView):
@@ -140,4 +152,90 @@ class AdminUserDetailView(RetrieveDestroyAPIView):
                 "user_id": str(instance.id),
                 "email": instance.email,
             },
+        )
+
+class AdminStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        return Response({
+            "total": 0,
+            "resolved": 0,
+            "in_progress": 0,
+            "critical": 0,
+        })
+
+class AdminIncidentListView(generics.ListAPIView):
+    serializer_class = AdminIncidentSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get_queryset(self):
+        queryset = Incident.objects.all().select_related(
+            "user"
+        ).prefetch_related(
+            "media",
+            "status_history"
+        )
+
+        status_value = self.request.query_params.get("status")
+        incident_type = self.request.query_params.get("type")
+        search = self.request.query_params.get("search")
+
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+
+        if incident_type:
+            queryset = queryset.filter(type=incident_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(location_address__icontains=search)
+                | Q(type__icontains=search)
+            )
+
+        return queryset
+
+class AdminIncidentDetailView(generics.RetrieveAPIView):
+    serializer_class = AdminIncidentSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    queryset = Incident.objects.all().select_related(
+        "user"
+    ).prefetch_related(
+        "media",
+        "status_history"
+    )
+
+class AdminIncidentStatusUpdateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def put(self, request, pk):
+        incident = get_object_or_404(
+            Incident,
+            pk=pk
+        )
+
+        serializer = AdminIncidentStatusSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            incident = change_status(
+                incident=incident,
+                changed_by=request.user,
+                **serializer.validated_data
+            )
+        except ValueError as error:
+            return Response(
+                {"detail": str(error)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            AdminIncidentSerializer(incident).data,
+            status=status.HTTP_200_OK
         )

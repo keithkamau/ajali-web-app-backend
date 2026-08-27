@@ -5,3 +5,9 @@ class UsersConfig(AppConfig):
     name = 'apps.users'
     label = 'users'
     verbose_name = 'Users'
+    
+    def ready(self):
+        """
+        Import signals when app is ready
+        """
+        import apps.users.signals
