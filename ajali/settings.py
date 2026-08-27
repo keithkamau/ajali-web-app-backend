@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.incidents',
     'apps.notifications',
+    'apps.admin_api',
 ]
 
 MIDDLEWARE = [
