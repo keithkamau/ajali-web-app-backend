@@ -60,6 +60,7 @@ class IncidentStatusHistory(models.Model):
 	changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="incident_status_changes")
 	comment = models.TextField(blank=True)
 	changed_at = models.DateTimeField(auto_now_add=True)
+	sequence = models.PositiveIntegerField(default=0, editable=False)
 
 	class Meta:
-		ordering = ("-changed_at",)
+		ordering = ("-sequence", "-changed_at")
