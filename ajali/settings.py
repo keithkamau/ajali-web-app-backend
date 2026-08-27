@@ -10,6 +10,8 @@ env = environ.Env(
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(exist_ok=True)
 
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-key-change-in-production')
 DEBUG = env('DEBUG', default=False)
@@ -69,7 +71,7 @@ WSGI_APPLICATION = 'ajali.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': env('DB_ENGINE', default='django.db.backends.sqlite3'),
         'NAME': env('DB_NAME', default='ajali_db'),
         'USER': env('DB_USER', default='postgres'),
         'PASSWORD': env('DB_PASSWORD', default='password'),
@@ -174,7 +176,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': 'logs/django.log',
+            'filename': LOG_DIR / 'django.log',
             'formatter': 'verbose',
         },
     },

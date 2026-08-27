@@ -15,6 +15,7 @@ venv.bak/
 *.pot
 *.pyc
 local_settings.py
+ajali_db
 db.sqlite3
 db.sqlite3-journal
 media/
@@ -45,10 +46,6 @@ nosetests.xml
 coverage.xml
 *.cover
 tests/__pycache__/
-
-# Migration files
-*/migrations/*.py
-!*/migrations/__init__.py
 
 # Logs
 logs/
