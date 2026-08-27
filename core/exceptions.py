@@ -3,6 +3,7 @@ Custom pagination classes for the API
 """
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
+from rest_framework.views import exception_handler
 
 class CustomPagination(PageNumberPagination):
     """
@@ -21,3 +22,15 @@ class CustomPagination(PageNumberPagination):
             'total_pages': self.page.paginator.num_pages,
             'results': data
         })
+    
+def custom_exception_handler(exc, context):
+        response = exception_handler(exc, context)
+
+        if response is not None:
+            response.data = {
+                "error": True,
+                "status_code": response.status_code,
+                "details": response.data,
+            }
+
+        return response
