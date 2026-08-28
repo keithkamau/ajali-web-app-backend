@@ -1,0 +1,22 @@
+Welcome to Ajali!
+
+Hello {{ user.full_name }},
+
+Welcome to Ajali! - Your trusted emergency incident reporting platform.
+
+You've successfully created an account. You can now:
+- Report accidents and emergencies
+- Add images and videos to your reports
+- Track the status of your reports
+- Get real-time updates
+
+To get started, visit: {{ frontend_url }}/dashboard
+
+If you have any questions, please don't hesitate to contact our support team.
+
+Stay safe,
+The Ajali! Team
+
+---
+© 2026 Ajali!. All rights reserved.
+This email was sent to {{ user.email }}
