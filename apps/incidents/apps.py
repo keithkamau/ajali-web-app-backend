@@ -5,3 +5,7 @@ class IncidentsConfig(AppConfig):
     name = 'apps.incidents'
     label = 'incidents'
     verbose_name = 'Incidents'
+    
+    def ready(self):
+        """Import signals when app is ready"""
+        pass
