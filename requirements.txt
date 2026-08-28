@@ -1,4 +1,4 @@
-# Django Core
+# Core Django
 Django==4.2.7
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
@@ -10,18 +10,20 @@ psycopg2-binary==2.9.9
 # Authentication
 djangorestframework-simplejwt==5.3.0
 
-# Documentation
+# API Documentation
 drf-yasg==1.21.7
 
-# File Upload
+# File Upload (Cloudinary)
 cloudinary==1.35.0
 django-cloudinary-storage==0.3.0
 
 # Geolocation
 geopy==2.4.0
 
-# Notifications
+# Email (SendGrid)
 sendgrid==6.10.0
+
+# HTTP Client
 requests==2.31.0
 
 # Utilities
@@ -37,7 +39,7 @@ factory-boy==3.3.0
 faker==20.1.0
 coverage==7.3.2
 
-# Development
+# Development Tools
 black==23.11.0
 flake8==6.1.0
 isort==5.12.0
@@ -45,6 +47,10 @@ ipython==8.17.2
 django-debug-toolbar==4.2.0
 django-extensions==3.2.3
 
-# Production
+# Production Server
 gunicorn==21.2.0
 whitenoise==6.6.0
+
+# Essential - Fixes pkg_resources
+setuptools==69.0.3
+wheel==0.41.0
