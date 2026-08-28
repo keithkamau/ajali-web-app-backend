@@ -18,15 +18,20 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
+    # Third party apps
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
     'django_filters',
     'cloudinary',
     'cloudinary_storage',
+    
+    # Local apps - ADD admin_api HERE
     'apps.users',
     'apps.incidents',
     'apps.notifications',
+    'apps.admin_api',
 ]
 
 MIDDLEWARE = [

@@ -9,8 +9,7 @@ from .permissions import IsIncidentOwner
 from .serializers import IncidentMediaSerializer, IncidentSerializer, IncidentStatusHistorySerializer, IncidentStatusUpdateSerializer
 from .services import attach_media, change_status, create_incident, delete_media
 from core.geocoding import forward_geocode, reverse_geocode
-from core.cloudinary_utils import generate_upload_signature
-
+from core.cloudinary_utils import generate_upload_signature, delete_from_cloudinary, upload_to_cloudinary
 class CloudinaryUploadSignatureView(generics.GenericAPIView):
 	permission_classes = (permissions.IsAuthenticated, IsIncidentOwner)
 
