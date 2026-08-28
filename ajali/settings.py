@@ -146,7 +146,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Email
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = env('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env('EMAIL_USE_TLS', default=True)
@@ -154,6 +154,7 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 
 # Third Party
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:3000')
 SENDGRID_API_KEY = env('SENDGRID_API_KEY', default='')
 CLOUDINARY_CLOUD_NAME = env('CLOUDINARY_CLOUD_NAME', default='')
 CLOUDINARY_API_KEY = env('CLOUDINARY_API_KEY', default='')
