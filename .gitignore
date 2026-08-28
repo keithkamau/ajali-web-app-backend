@@ -63,3 +63,4 @@ logs/
 dist/
 build/
 *.egg-info/
+ajali_dev
