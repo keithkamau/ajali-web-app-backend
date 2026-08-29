@@ -1,4 +1,3 @@
-# ajali/urls.py
 from django.contrib import admin
 from django.urls import include, path, re_path
 from django.http import JsonResponse
@@ -7,12 +6,13 @@ from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
 from rest_framework import permissions
 
-# Simple root view
+@csrf_exempt
 def root_view(request):
     return JsonResponse({
         "message": "Ajali API is running",
         "endpoints": {
-            "health": "/api/health/",
+            "health": "/health/",
+            "api_health": "/api/health/",
             "auth": "/api/auth/",
             "incidents": "/api/incidents/",
             "admin": "/api/admin/",
@@ -23,12 +23,8 @@ def root_view(request):
     })
 
 @csrf_exempt
-def health_check(request):
-    return JsonResponse({
-        "status": "healthy",
-        "message": "Ajali! API is running",
-        "version": "1.0.0"
-    })
+def simple_health(request):
+    return JsonResponse({"status": "ok", "message": "Ajali API is healthy"})
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -41,14 +37,15 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # Root - returns API info
+    # Root
     path('', root_view, name='root'),
     
     # Admin
     path('admin/', admin.site.urls),
     
-    # Health check
-    path('api/health/', health_check, name='health_check'),
+    # Health (both with and without /api/ prefix)
+    path('health/', simple_health, name='health'),
+    path('api/health/', simple_health, name='api_health'),
     
     # API endpoints
     path('api/auth/', include('apps.users.urls')),
@@ -61,3 +58,7 @@ urlpatterns = [
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
