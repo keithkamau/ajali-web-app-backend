@@ -76,7 +76,7 @@ DATABASES = {
         'PORT': os.getenv('DB_PORT', '5432'),
         'CONN_MAX_AGE': 0,
         'OPTIONS': {
-          'connect-timeout':10,
+          'connect_timeout':10,
         }
     }
 }
