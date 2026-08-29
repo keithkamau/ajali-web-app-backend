@@ -1,19 +1,34 @@
-# print("Loading urls.py...")
-# from core.views import health_check
-# print("health_check imported successfully")
-
+# ajali/urls.py
 from django.contrib import admin
 from django.urls import include, path, re_path
-from django.conf import settings
-from django.conf.urls.static import static
-from rest_framework import permissions
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
-from django.http import JsonResponse
+from rest_framework import permissions
 
+# Simple root view
+def root_view(request):
+    return JsonResponse({
+        "message": "Ajali API is running",
+        "endpoints": {
+            "health": "/api/health/",
+            "auth": "/api/auth/",
+            "incidents": "/api/incidents/",
+            "admin": "/api/admin/",
+            "notifications": "/api/notifications/",
+            "swagger": "/swagger/",
+            "redoc": "/redoc/"
+        }
+    })
 
-def simple_health(request):
-    return JsonResponse({"status": "ok"})
+@csrf_exempt
+def health_check(request):
+    return JsonResponse({
+        "status": "healthy",
+        "message": "Ajali! API is running",
+        "version": "1.0.0"
+    })
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -26,17 +41,23 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    # Root - returns API info
+    path('', root_view, name='root'),
+    
+    # Admin
     path('admin/', admin.site.urls),
+    
+    # Health check
+    path('api/health/', health_check, name='health_check'),
+    
+    # API endpoints
     path('api/auth/', include('apps.users.urls')),
-    path('health/', simple_health, name='simple_health'),
     path('api/incidents/', include('apps.incidents.urls')),
     path('api/admin/', include('apps.admin_api.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    
+    # API Documentation
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
-
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
