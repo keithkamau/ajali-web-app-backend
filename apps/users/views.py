@@ -2,7 +2,6 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
 from django.conf import settings
@@ -17,6 +16,7 @@ from .services import UserService
 from .permissions import IsOwnerOrAdmin
 from core.permissions import IsAdminUser
 
+
 class RegisterView(generics.CreateAPIView):
     """
     Register a new user
@@ -25,6 +25,23 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = (permissions.AllowAny,)
+    
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        
+        return Response({
+            'message': 'User registered successfully',
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'full_name': user.full_name,
+                'phone_number': user.phone_number,
+                'role': user.role
+            }
+        }, status=status.HTTP_201_CREATED)
+
 
 class LoginView(APIView):
     """
@@ -63,6 +80,7 @@ class LoginView(APIView):
             'user': UserSerializer(user).data
         })
 
+
 class LogoutView(APIView):
     """
     Logout user (blacklist refresh token)
@@ -80,12 +98,35 @@ class LogoutView(APIView):
             pass
         return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
 
-class RefreshTokenView(TokenRefreshView):
+
+class RefreshTokenView(APIView):
     """
     Refresh access token
     POST /api/auth/refresh/
     """
-    pass
+    permission_classes = (permissions.AllowAny,)
+    
+    def post(self, request):
+        try:
+            refresh_token = request.data.get('refresh')
+            if not refresh_token:
+                return Response(
+                    {'error': 'Refresh token required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            token = RefreshToken(refresh_token)
+            access_token = str(token.access_token)
+            
+            return Response({
+                'access_token': access_token
+            })
+        except Exception as e:
+            return Response(
+                {'error': 'Invalid refresh token'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
 
 class CurrentUserView(generics.RetrieveUpdateAPIView):
     """
@@ -105,13 +146,13 @@ class CurrentUserView(generics.RetrieveUpdateAPIView):
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         
-        # Update user using service
         user = UserService.update_user(instance, serializer.validated_data)
         
         return Response({
             'message': 'Profile updated successfully',
             'user': UserSerializer(user).data
         })
+
 
 class ChangePasswordView(APIView):
     """
@@ -135,6 +176,7 @@ class ChangePasswordView(APIView):
         
         return Response({'message': 'Password changed successfully'})
 
+
 class ForgotPasswordView(APIView):
     """
     Request password reset
@@ -155,16 +197,13 @@ class ForgotPasswordView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Generate reset token
         token = UserService.generate_reset_token(user)
-        
-        # Send email with reset link
         UserService.send_reset_email(user, token)
         
         return Response({
-            'message': 'Password reset email sent. Please check your inbox.',
-            'reset_token': token  # Remove in production
+            'message': 'Password reset email sent. Please check your inbox.'
         }, status=status.HTTP_200_OK)
+
 
 class ResetPasswordView(APIView):
     """
@@ -187,6 +226,7 @@ class ResetPasswordView(APIView):
         
         return Response({'message': 'Password reset successful'})
 
+
 class UserListView(generics.ListAPIView):
     """
     List all users (Admin only)
@@ -202,6 +242,7 @@ class UserListView(generics.ListAPIView):
         if role:
             queryset = queryset.filter(role=role)
         return queryset
+
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
