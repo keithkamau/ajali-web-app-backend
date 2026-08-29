@@ -10,7 +10,7 @@ from .views import (
     AdminBulkIncidentStatusView,
     AdminStatsView,
     AdminRecentIncidentsView,
-    # AdminUserListView,
+    AdminUserListView,
     AdminUserRoleUpdateView,
 )
 from rest_framework.generics import RetrieveDestroyAPIView
@@ -22,11 +22,11 @@ urlpatterns = [
         name="admin-action-list",
     ),
 
-    # path(
-    #     "users/",
-    #     AdminUserListView.as_view(),
-    #     name="admin-user-list",
-    # ),
+    path(
+        "users/",
+        AdminUserListView.as_view(),
+        name="admin-user-list",
+    ),
 
     path(
     "incidents/stats/",

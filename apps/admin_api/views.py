@@ -43,24 +43,12 @@ class AdminActionLogListView(ListAPIView):
     serializer_class = AdminActionLogSerializer
     permission_classes = [IsAuthenticated, IsAdminUser]
 
-class AdminUserDetailView(RetrieveAPIView):
-    queryset = User.objects.all()
-    serializer_class = AdminUserSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-    lookup_field = "id"
-    lookup_url_kwarg = "id"
 
 class AdminUserRoleUpdateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def put(self, request, id):
-        try:
-            user = User.objects.get(id=id)
-        except User.DoesNotExist:
-            return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        user = get_object_or_404(User, id=id)
 
         if user.id == request.user.id:
             return Response(
@@ -71,25 +59,21 @@ class AdminUserRoleUpdateView(APIView):
         serializer = AdminUserRoleSerializer(
             user,
             data=request.data,
-            partial=False,
+            partial=True,
         )
 
         serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        old_role = user.role
-
-        with transaction.atomic():
-            serializer.save()
-
-            AdminActionLog.objects.create(
-                admin=request.user,
-                action="update_user_role",
-                details={
-                    "user_id": str(user.id),
-                    "old_role": old_role,
-                    "new_role": user.role,
-                },
-            )
+        AdminActionLog.objects.create(
+            admin=request.user,
+            action="update_user_role",
+            details={
+                "user_id": str(user.id),
+                "email": user.email,
+                "role": user.role,
+            },
+        )
 
         return Response(
             AdminUserSerializer(user).data,
@@ -156,6 +140,36 @@ class AdminUserDetailView(RetrieveDestroyAPIView):
             },
         )
 
+class AdminUserListView(ListAPIView):
+    queryset = User.objects.all().order_by("-created_at")
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        role = self.request.query_params.get("role")
+        status_filter = self.request.query_params.get("status")
+        search = self.request.query_params.get("search")
+
+        if role:
+            queryset = queryset.filter(role=role)
+
+        if status_filter:
+            if status_filter.lower() == "active":
+                queryset = queryset.filter(is_active=True)
+            elif status_filter.lower() == "inactive":
+                queryset = queryset.filter(is_active=False)
+
+        if search:
+            queryset = queryset.filter(
+                Q(full_name__icontains=search)
+                | Q(email__icontains=search)
+                | Q(phone_number__icontains=search)
+            )
+
+        return queryset
+    
 class AdminStatsView(APIView):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
