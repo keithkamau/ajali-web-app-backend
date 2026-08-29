@@ -1,15 +1,19 @@
 from django.contrib import admin
 from django.urls import include, path, re_path
+from django.conf import settings
+from django.conf.urls.static import static
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework import permissions
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
-from rest_framework import permissions
+
 
 @csrf_exempt
 def root_view(request):
     return JsonResponse({
         "message": "Ajali API is running",
+        "version": "1.0.0",
         "endpoints": {
             "health": "/health/",
             "api_health": "/api/health/",
@@ -22,9 +26,15 @@ def root_view(request):
         }
     })
 
+
 @csrf_exempt
 def simple_health(request):
-    return JsonResponse({"status": "ok", "message": "Ajali API is healthy"})
+    return JsonResponse({
+        "status": "ok",
+        "message": "Ajali API is healthy",
+        "timestamp": "2026-08-29"
+    })
+
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -43,7 +53,7 @@ urlpatterns = [
     # Admin
     path('admin/', admin.site.urls),
     
-    # Health (both with and without /api/ prefix)
+    # Health
     path('health/', simple_health, name='health'),
     path('api/health/', simple_health, name='api_health'),
     
