@@ -1,0 +1,837 @@
+
+AJALI!
+EMERGENCY INCIDENT REPORTING SYSTEM
+Technical & API Documentation
+Full-Stack Architecture, Data Models, and REST API Reference
+Backend: Django 4.2 + Django REST Framework
+Frontend: React 18 + Vite + Redux Toolkit
+Document Version 1.0
+August 2026
+ 
+TABLE OF CONTENTS
+1. Introduction & Overview	3
+2. System Architecture	4
+3. Technology Stack	5
+4. Project / Folder Structure	6
+5. Database Models	7
+6. Authentication & Authorization	10
+7. API Reference	11
+7.1 Authentication API — /api/auth/	12
+7.2 Incidents API — /api/incidents/	17
+7.3 Admin API — /api/admin/	22
+7.4 Notifications API — /api/notifications/	25
+8. Standard Response & Error Formats	28
+9. File Uploads (Cloudinary)	29
+10. Setup & Installation	30
+11. Known Limitations & Notes	32
+Appendix A: Full Endpoint Quick-Reference	33
+ 
+1. INTRODUCTION & OVERVIEW
+Ajali! (Swahili for "accident" or "incident") is a full-stack emergency incident reporting platform. It allows members of the public to report accidents, hazards, and emergencies with a title, description, category, and precise geolocation, optionally attaching photos or videos as evidence. Reports move through a defined status lifecycle (Reported → Under Review → In Progress → Resolved/Rejected) that is fully auditable, and administrators have a dedicated back-office interface to triage, filter, and bulk-manage incoming reports.
+The system is split into two independently deployable codebases that communicate exclusively over a JSON REST API:
+•	A Django REST Framework backend ("ajali-web-app-backend") that owns all business logic, data persistence, authentication, and third-party integrations (file storage, geocoding, email).
+•	A React single-page application ("ajali-app-frontend"), built with Vite and state-managed with Redux Toolkit, that consumes the backend API and renders the public-facing and admin interfaces.
+1.1 Core Features
+•	Email/password registration and login with JWT-based session management and automatic access-token refresh.
+•	Incident reporting with geolocation (latitude/longitude + human-readable address), category/type tagging, and an option to report anonymously.
+•	Photo and video evidence attachment via Cloudinary, with signed, direct-to-cloud client uploads.
+•	Forward and reverse geocoding (address ⇄ coordinates) to simplify location entry.
+•	A full, timestamped status-change audit trail per incident (who changed the status, from what, to what, and why).
+•	A role-based admin console for reviewing, searching, filtering, and bulk-updating incident statuses, plus user role management and an admin action audit log.
+•	An in-app notification system with per-user preferences (email/SMS/push toggles), unread counts, and bulk read/delete actions.
+1.2 Intended Users
+•	Members of the public ("user" role) — report incidents, track their own reports, and manage their notifications.
+•	Administrators ("admin" role) — review all incidents platform-wide, update statuses, manage user accounts and roles, and audit admin activity.
+ 
+2. SYSTEM ARCHITECTURE
+The platform follows a decoupled client-server architecture. The React frontend never touches the database directly — every read or write goes through the versioned REST API exposed by the Django backend.
+React SPA (Vite)  ──axios + JWT──▶  Django REST API  ──▶  PostgreSQL
+      │                                    │
+      │                                    ├──▶ Cloudinary (media storage)
+ Redux Toolkit                              ├──▶ Nominatim / OpenStreetMap (geocoding)
+ (client state)                             └──▶ SMTP (password-reset emails)
+2.1 Request Flow Example — Reporting an Incident
+•	User fills the "Create Incident" form in the React app; React Hook Form + Yup validate the fields client-side.
+•	The frontend optionally calls the reverse/forward geocoding endpoints to convert a map pin or typed address into coordinates.
+•	axiosInstance attaches the JWT access token from localStorage to the Authorization header and POSTs to /api/incidents/.
+•	Django's JWTAuthentication class validates the token and identifies the requesting user; the IncidentListCreateView creates the Incident row and its first IncidentStatusHistory entry (status = "reported") inside a single database transaction.
+•	If the user attaches media, the frontend requests a signed Cloudinary upload signature from the backend, uploads the file directly to Cloudinary from the browser, then registers the resulting media URL against the incident via the image/video upload endpoints.
+•	The created incident (including nested media and status history) is returned as JSON and added to the Redux incident slice, which re-renders the UI.
+2.2 Why This Architecture
+•	Decoupling frontend and backend allows either to be redeployed, scaled, or replaced independently (e.g. a future mobile app could reuse the same API).
+•	JWT authentication is stateless, so the API can scale horizontally without a shared session store.
+•	Direct-to-Cloudinary uploads (via signed signatures) avoid routing large image/video payloads through the Django server, reducing backend load and upload latency.
+•	Business logic for status transitions and incident creation is centralized in service functions (apps/incidents/services.py), not duplicated across views, so both the user-facing and admin endpoints share identical, auditable behaviour.
+ 
+3. TECHNOLOGY STACK
+3.1 Backend
+Layer	Technology
+Language / Runtime	Python 3.11
+Web Framework	Django 4.2.7
+API Framework	Django REST Framework 3.14.0
+Authentication	djangorestframework-simplejwt 5.3.0 (JWT, access + refresh tokens)
+Database	PostgreSQL (psycopg2-binary driver)
+File / Media Storage	Cloudinary (django-cloudinary-storage)
+Geocoding	geopy (Nominatim / OpenStreetMap)
+Email Delivery	Django SMTP email backend / SendGrid
+API Docs / Schema	drf-yasg (Swagger UI at /swagger/, ReDoc at /redoc/)
+CORS	django-cors-headers
+Filtering	django-filter (DjangoFilterBackend)
+Static Files	WhiteNoise
+WSGI Server (production)	Gunicorn
+Testing	pytest, pytest-django, factory-boy, faker, coverage
+3.2 Frontend
+Layer	Technology
+Framework / Build Tool	React 18.2 with Vite 5
+State Management	Redux Toolkit + React-Redux (slices: auth, incidents, notifications, admin, ui)
+Routing	React Router DOM v6
+HTTP Client	Axios (with request/response interceptors for JWT attach + refresh)
+Forms & Validation	React Hook Form + Yup resolvers
+Styling	Tailwind CSS v4
+Maps	@react-google-maps/api (Google Maps JavaScript API)
+Media Handling	react-dropzone (uploads), react-player (video playback)
+UX Utilities	react-toastify (toasts), react-modal, react-paginate, react-loader-spinner
+Testing	Jest + React Testing Library
+ 
+4. PROJECT / FOLDER STRUCTURE
+4.1 Backend — ajali-web-app-backend
+ajali/                  Django project package
+  settings.py           Global settings (DB, JWT, CORS, Cloudinary, email)
+  urls.py               Root URL router — mounts each app under /api/...
+apps/
+  users/                Registration, login, profile, password reset, user admin
+  incidents/            Incident CRUD, media uploads, geocoding, status history
+  admin_api/            Admin-only incident/user management + action audit log
+  notifications/        In-app notifications and preferences
+core/
+  authentication.py     Custom JWT authentication (rejects inactive users)
+  permissions.py        IsAdminUser, IsOwnerOrAdmin, IsAdminOrReadOnly
+  middleware.py         Global exception handling, request logging, rate limiting
+  exceptions.py         Consistent error response wrapper for DRF
+  pagination.py         CustomPagination (page, page_size, total_pages, results)
+  geocoding.py          Forward/reverse geocoding via geopy + Nominatim
+  cloudinary_utils.py   Signed upload signatures, upload/delete helpers
+  validators.py         Kenyan phone format, password strength, media validation
+manage.py, requirements.txt, Procfile, runtime.txt
+4.2 Frontend — ajali-app-frontend
+src/
+  api/                  authApi.js, incidentApi.js, notificationApi.js, axiosConfig.js
+  pages/                One component per route (Login, Register, Dashboard,
+                        CreateIncident, IncidentDetail, AdminIncidents, etc.)
+  components/           Reusable UI building blocks (Header, Sidebar, BottomNav, ...)
+  redux/
+    slices/             authSlice, incidentSlice, notificationSlice, adminSlice, uiSlice
+    store.js            Redux store configuration
+    hooks/              Typed dispatch/selector hooks
+  utils/                constants.js, formatters.js, validators.js
+  styles/               Global CSS and theme definitions
+  App.jsx               Route definitions + ProtectedRoute wrapper (auth/admin guards)
+ 
+5. DATABASE MODELS
+All primary keys are UUIDs (not auto-incrementing integers), which avoids exposing sequential, guessable IDs in the public API.
+5.1 User (apps.users.models.User)
+Custom user model (AUTH_USER_MODEL = users.User) authenticated by email rather than username.
+Field	Type	Notes
+id	UUID	Primary key
+email	EmailField, unique	Login identifier (USERNAME_FIELD)
+full_name	CharField(100)	Required
+phone_number	CharField(20)	Optional; validated as a Kenyan number (07XXXXXXXX or +2547XXXXXXXX)
+role	CharField	"user" (default) or "admin"
+is_active	Boolean	False disables login (used for soft-delete/deactivation)
+is_verified	Boolean	Email verification flag
+created_at / updated_at	DateTime	Auto-managed
+5.2 PasswordResetToken
+Field	Type	Notes
+id	UUID	Primary key
+user	FK → User	CASCADE on delete
+token	CharField, unique	Random URL-safe secret (secrets.token_urlsafe(32))
+expires_at	DateTime	Set to now + 1 hour on generation
+used	Boolean	Marked True after successful reset (single-use)
+5.3 Incident
+Field	Type	Notes
+id	UUID	Primary key
+user	FK → User (PROTECT)	Reporter; cannot be deleted while incidents reference it
+title	CharField(120)	Required
+description	Text	Required
+type	CharField(40)	Free-form incident category (e.g. "accident", "fire", "crime")
+location_lat / location_lng	Decimal(9,6)	Geographic coordinates
+location_address	CharField(255)	Human-readable address
+status	CharField, choices	reported / under_review / in_progress / resolved / rejected
+is_anonymous	Boolean	If true, excluded from the public incident feed
+created_at / updated_at	DateTime	Auto-managed; indexed with user and status for query performance
+5.4 IncidentMedia
+Field	Type	Notes
+id	UUID	Primary key
+incident	FK → Incident (CASCADE)	Deleted when the parent incident is deleted
+media_type	CharField, choices	"image" or "video"
+media_url	URLField	Cloudinary-hosted secure URL
+public_id	CharField	Cloudinary public ID (used to delete the asset later)
+mime_type	CharField	Validated against an allow-list per media_type
+file_size_bytes	PositiveBigInteger	Validated: images ≤ 10 MB, videos ≤ 50 MB
+5.5 IncidentStatusHistory
+An append-only audit trail. A row is written every time an incident is created (initial status) or its status changes — never updated or deleted.
+Field	Type	Notes
+id	UUID	Primary key
+incident	FK → Incident (CASCADE)	
+old_status	CharField, nullable	Null for the very first (creation) entry
+new_status	CharField	
+changed_by	FK → User (PROTECT)	The reporter (on creation) or an admin (on status change)
+comment	Text, optional	Reason/note for the change, up to 2000 characters
+sequence	PositiveInteger	Monotonically increasing per-incident ordering
+5.6 Notification / NotificationPreference
+Field	Type	Notes
+id	UUID	Notification primary key
+user	FK → User (CASCADE)	
+type	CharField(50)	e.g. "status_change", "system"
+title / message	CharField / Text	Display content
+read	Boolean	Defaults to False
+created_at	DateTime	Auto-managed
+NotificationPreference is a one-to-one extension of User with three booleans: email_enabled, sms_enabled, and push_enabled (all default True).
+5.7 AdminActionLog
+Field	Type	Notes
+id	UUID	Primary key
+admin	FK → User (CASCADE)	The admin who performed the action
+action	CharField(100)	e.g. "update_user_role", "bulk_update_incident_status"
+details	JSONField	Structured before/after payload for the audit trail
+ip_address / user_agent	GenericIP / Text	Captured for security auditing
+created_at	DateTime	Auto-managed
+ 
+6. AUTHENTICATION & AUTHORIZATION
+6.1 JWT Token Flow
+The API uses JSON Web Tokens via djangorestframework-simplejwt. On successful login or registration+login, the server issues two tokens:
+Token	Lifetime	Purpose
+access_token	1 hour	Sent as "Authorization: Bearer <token>" on every authenticated request
+refresh_token	30 days	Exchanged for a new access token via /api/auth/refresh/ once the access token expires
+On the frontend, axios request/response interceptors (src/api/axiosConfig.js) automate this: every outgoing request automatically attaches the stored access token, and if a request comes back with HTTP 401, the interceptor silently calls /api/auth/refresh/, stores the new access token, and retries the original request once. If the refresh itself fails, the user is redirected to /login.
+6.2 Roles & Permission Classes
+Permission Class	Effect
+permissions.IsAuthenticated (DRF built-in)	Requires a valid access token; used on nearly all non-public endpoints
+permissions.AllowAny (DRF built-in)	No authentication required (registration, login, password reset, public incident feed)
+core.permissions.IsAdminUser	Requires an authenticated user with role == "admin"; used on every /api/admin/ endpoint
+core.permissions.IsOwnerOrAdmin	Object-level: allows the resource's owner OR any admin
+apps.incidents.permissions.IsIncidentOwner	Object-level: only the user who reported the incident may view/edit/delete it or its media
+Note on IncidentDetailView: the queryset intentionally is NOT pre-filtered by request.user. This is a deliberate design choice — if it were filtered, a non-owner requesting someone else's incident would get a 404 ("not found"), which is ambiguous. Instead, the queryset returns the row and IsIncidentOwner.has_object_permission() explicitly rejects non-owners with a 403 ("forbidden"), giving a clearer, more correct HTTP semantic.
+6.3 Password Requirements
+•	Minimum 8 characters
+•	At least one uppercase letter, one lowercase letter, one digit, and one special character
+•	Enforced server-side by validate_password_strength() on both registration and password change/reset — client-side validation is a UX convenience only, not a security boundary
+ 
+7. API REFERENCE
+Base URL (local development): http://localhost:8000/api/  •  Interactive documentation is auto-generated at /swagger/ (Swagger UI) and /redoc/ (ReDoc) from the same DRF views documented below.
+Unless stated otherwise, all request and response bodies are JSON. All authenticated endpoints require the header: Authorization: Bearer <access_token>.
+ 
+7.1 Authentication API — /api/auth/
+ POST   /api/auth/register/
+Register a new account
+Auth required: None
+Creates a new user with role "user" (the admin role cannot be self-assigned). Passwords are validated for strength and the email must not already exist.
+Request Body:
+Field	Type	Description
+email	string	Required, must be unique
+password	string	Required, must meet password strength rules
+full_name	string	Required
+phone_number	string	Optional; Kenyan format (07XXXXXXXX or +2547XXXXXXXX)
+Example Response:
+{
+  "id": "b3f1...uuid",
+  "email": "jane@example.com",
+  "full_name": "Jane Wanjiru",
+  "phone_number": "0712345678",
+  "role": "user"
+}
+
+ POST   /api/auth/login/
+Log in and receive tokens
+Auth required: None
+Validates credentials and, on success, returns a JWT access/refresh token pair plus the authenticated user's profile. Fails with 401 for invalid credentials or a deactivated account.
+Request Body:
+Field	Type	Description
+email	string	Required
+password	string	Required
+Example Response:
+{
+  "message": "Login successful",
+  "access_token": "eyJhbGciOi...",
+  "refresh_token": "eyJhbGciOi...",
+  "user": { "id": "...", "email": "jane@example.com", "role": "user", ... }
+}
+
+ POST   /api/auth/logout/
+Log out (blacklist refresh token)
+Auth required: Required
+Blacklists the supplied refresh token so it can no longer be exchanged for a new access token. Always returns success even if the token was already invalid, to avoid leaking token validity.
+Request Body:
+Field	Type	Description
+refresh_token	string	The refresh token to invalidate
+Example Response:
+{
+  "message": "Logout successful"
+}
+
+ POST   /api/auth/refresh/
+Refresh an access token
+Auth required: None (refresh token acts as the credential)
+Standard SimpleJWT TokenRefreshView. Exchanges a valid, non-expired refresh token for a new access token.
+Request Body:
+Field	Type	Description
+refresh	string	A valid refresh token
+Example Response:
+{
+  "access": "eyJhbGciOi..."
+}
+
+ GET   /api/auth/me/
+Get the current user's profile
+Auth required: Required
+Returns the authenticated user's own profile.
+Example Response:
+{
+  "id": "...", "email": "jane@example.com", "full_name": "Jane Wanjiru",
+  "phone_number": "0712345678", "role": "user", "is_active": true,
+  "is_verified": false, "created_at": "...", "updated_at": "..."
+}
+
+ PUT   /api/auth/me/
+Update the current user's profile
+Auth required: Required
+Updates the caller's own full_name and/or phone_number. Read-only fields (id, role, is_active, is_verified, timestamps) are ignored if supplied.
+Request Body:
+Field	Type	Description
+full_name	string	Optional
+phone_number	string	Optional
+Example Response:
+{
+  "message": "Profile updated successfully",
+  "user": { ... }
+}
+
+ POST   /api/auth/change-password/
+Change password (while logged in)
+Auth required: Required
+Requires the current password for verification before setting the new one.
+Request Body:
+Field	Type	Description
+current_password	string	Required
+new_password	string	Required; must meet password strength rules
+Example Response:
+{
+  "message": "Password changed successfully"
+}
+Note: Returns 400 with {"error": "Current password is incorrect"} if verification fails.
+ POST   /api/auth/forgot-password/
+Request a password reset
+Auth required: None
+Looks up the account by email, generates a single-use reset token valid for 1 hour, and emails a reset link built from FRONTEND_URL.
+Request Body:
+Field	Type	Description
+email	string	Required
+Example Response:
+{
+  "message": "Password reset email sent. Please check your inbox.",
+  "reset_token": "..."  // present in the response for development/testing only
+}
+Note: Returns 404 if no account matches the email. The reset_token is echoed in the API response as a development convenience — this should be removed before production deployment, since it defeats the purpose of emailing the link.
+ POST   /api/auth/reset-password/
+Reset password with a token
+Auth required: None (token acts as the credential)
+Completes the reset flow started by /forgot-password/. The token is single-use and expires after 1 hour.
+Request Body:
+Field	Type	Description
+token	string	The reset token from the email/response
+new_password	string	Required; must meet password strength rules
+Example Response:
+{
+  "message": "Password reset successful"
+}
+Note: Returns 400 for an invalid, expired, or already-used token.
+ GET   /api/auth/users/
+List all users (admin only)
+Auth required: Required — admin role
+Returns every user account. Supports filtering by role.
+Query / URL Parameters:
+Parameter	Description
+?role=user|admin	Filter the list to a single role
+Example Response:
+[
+  { "id": "...", "email": "...", "role": "user", ... },
+  ...
+]
+
+ GET / PUT / DELETE   /api/auth/users/{id}/
+Retrieve, update, or deactivate a user (admin only)
+Auth required: Required — admin role
+GET returns the user's profile; PUT updates it. DELETE does not hard-delete — it sets is_active=False (soft delete), preventing that account from logging in while preserving its historical incidents/data. An admin cannot deactivate their own account (returns 400).
+Example Response:
+{
+  "message": "User deactivated successfully"
+}
+
+ 
+7.2 Incidents API — /api/incidents/
+ GET   /api/incidents/
+List the current user's incidents
+Auth required: Required
+Returns only incidents reported by the authenticated user (never other users' reports), each with nested media and status_history. Supports filtering, search, and ordering.
+Query / URL Parameters:
+Parameter	Description
+?type=	Filter by incident type
+?status=	Filter by status
+?is_anonymous=true|false	Filter by anonymity flag
+?search=	Full-text search across title, description, location_address, type
+?ordering=created_at|-created_at|title|status|type	Sort order (prefix "-" for descending)
+Example Response:
+[
+  {
+    "id": "...", "title": "Matatu accident on Thika Road",
+    "description": "...", "type": "accident",
+    "location_lat": "-1.219800", "location_lng": "36.889500",
+    "location_address": "Thika Road, Nairobi", "status": "reported",
+    "is_anonymous": false, "created_at": "...", "updated_at": "...",
+    "media": [], "status_history": [ { "old_status": null, "new_status": "reported", ... } ]
+  }
+]
+
+ POST   /api/incidents/
+Report a new incident
+Auth required: Required
+Creates an incident owned by the authenticated user and automatically writes the first IncidentStatusHistory row (status = "reported"). Both operations happen in a single atomic transaction.
+Request Body:
+Field	Type	Description
+title	string	Required, max 120 characters
+description	string	Required
+type	string	Required, e.g. "accident", "fire", "crime"
+location_lat	decimal	Required
+location_lng	decimal	Required
+location_address	string	Required, max 255 characters
+is_anonymous	boolean	Optional, default false
+Example Response:
+{
+  "id": "...", "status": "reported", "title": "...", ...
+}
+
+ GET   /api/incidents/search/
+Search the current user's incidents
+Auth required: Required
+Same underlying view and query parameters as the list endpoint above, restricted to GET/HEAD/OPTIONS. Exists as a semantically distinct URL for the frontend's search UI.
+
+ GET   /api/incidents/filter/
+Filter the current user's incidents
+Auth required: Required
+Same underlying view and query parameters as the list endpoint, restricted to GET/HEAD/OPTIONS. Exists as a semantically distinct URL for the frontend's filter UI.
+
+ GET / PUT / DELETE   /api/incidents/{id}/
+Retrieve, update, or delete a single incident
+Auth required: Required — must be the reporting owner
+GET works for the owner. PUT/DELETE are restricted by IsIncidentOwner: any user other than the original reporter receives 403 Forbidden, not 404, so ownership errors are unambiguous.
+Example Response:
+{
+  "id": "...", "title": "...", "media": [...], "status_history": [...]
+}
+
+ GET   /api/incidents/{id}/status-history/
+Get the full status audit trail for an incident
+Auth required: Required — must be the reporting owner
+Returns every IncidentStatusHistory entry for the incident, most recent first.
+Example Response:
+[
+  {
+    "old_status": "reported", "new_status": "under_review",
+    "changed_by": "...", "comment": "Reviewing evidence", "changed_at": "..."
+  }
+]
+
+ POST   /api/incidents/{id}/status/
+Update an incident's status (owner)
+Auth required: Required — must be the reporting owner
+Transitions the incident to a new status and appends a status-history entry. Rejects (400) if the new status equals the current status.
+Request Body:
+Field	Type	Description
+status	string	One of: reported, under_review, in_progress, resolved, rejected
+comment	string	Optional, max 2000 characters
+Example Response:
+{
+  "id": "...", "status": "under_review", ...
+}
+
+ POST   /api/incidents/{id}/images/
+Attach an image to an incident
+Auth required: Required — must be the reporting owner
+Registers an already-uploaded Cloudinary image against the incident. media_type is forced to "image" server-side regardless of what is submitted. Validates MIME type (jpeg/png/webp) and size (≤ 10 MB).
+Request Body:
+Field	Type	Description
+media_url	string (URL)	Required, the Cloudinary secure URL
+public_id	string	Optional, the Cloudinary public ID (needed to delete later)
+mime_type	string	Required, e.g. image/jpeg
+file_size_bytes	integer	Required
+Example Response:
+{
+  "id": "...", "media_type": "image", "media_url": "https://res.cloudinary.com/...", ...
+}
+
+ DELETE   /api/incidents/{id}/images/{media_id}/
+Remove an image from an incident
+Auth required: Required — must be the reporting owner
+Deletes the IncidentMedia row. Returns 204 No Content on success.
+
+ POST   /api/incidents/{id}/videos/
+Attach a video to an incident
+Auth required: Required — must be the reporting owner
+Identical to the image upload endpoint, but media_type is forced to "video". Validates MIME type (mp4/quicktime/webm) and size (≤ 50 MB).
+Request Body:
+Field	Type	Description
+media_url	string (URL)	Required
+public_id	string	Optional
+mime_type	string	Required, e.g. video/mp4
+file_size_bytes	integer	Required
+
+ DELETE   /api/incidents/{id}/videos/{media_id}/
+Remove a video from an incident
+Auth required: Required — must be the reporting owner
+Deletes the IncidentMedia row. Returns 204 No Content on success.
+
+ GET   /api/incidents/public/
+Public incident feed
+Auth required: None
+Returns all incidents where is_anonymous is False, across all users — this is the only incidents endpoint that is not scoped to the requesting user, and it requires no authentication (used for a public map/feed view).
+
+ GET   /api/incidents/geocode/reverse/
+Reverse geocode (coordinates → address)
+Auth required: Required
+Converts a latitude/longitude pair into a human-readable address using OpenStreetMap/Nominatim.
+Query / URL Parameters:
+Parameter	Description
+lat	Required, latitude
+lng	Required, longitude
+Example Response:
+{
+  "address": "Thika Road, Nairobi, Kenya"
+}
+
+ GET   /api/incidents/geocode/forward/
+Forward geocode (address → coordinates)
+Auth required: Required
+Converts a free-text address into latitude/longitude using OpenStreetMap/Nominatim.
+Query / URL Parameters:
+Parameter	Description
+address	Required, free-text address to look up
+Example Response:
+{
+  "lat": "-1.2198", "lng": "36.8895", "address": "Thika Road, Nairobi, Kenya"
+}
+
+ GET   /api/incidents/{id}/upload-signature/
+Get a signed Cloudinary upload signature
+Auth required: Required — must be the reporting owner
+Generates a time-limited, signed payload the frontend uses to upload a file directly to Cloudinary from the browser, scoped to a per-incident folder (ajali/incidents/{incident_id}), without the file ever passing through the Django server.
+Example Response:
+{
+  "signature": "a1b2c3...", "timestamp": 1755000000,
+  "cloud_name": "ajali-media", "api_key": "1234567890",
+  "folder": "ajali/incidents/<incident-id>"
+}
+
+ 
+7.3 Admin API — /api/admin/
+Every endpoint in this section requires an authenticated user with role == "admin" (enforced by IsAdminUser); all others receive 403 Forbidden.
+ GET   /api/admin/actions/
+List admin action audit log
+Auth required: Required — admin role
+Returns every recorded AdminActionLog entry (who did what, when, with what details), most recent first.
+Example Response:
+[
+  {
+    "id": "...", "admin_name": "Site Admin", "admin_email": "admin@ajali.com",
+    "action": "update_user_role", "timestamp": "...",
+    "details": { "user_id": "...", "old_role": "user", "new_role": "admin" }
+  }
+]
+
+ GET / DELETE   /api/admin/users/{id}/
+Retrieve or deactivate a user
+Auth required: Required — admin role
+GET returns the user's admin-facing profile. DELETE (a soft delete — sets is_active=False) is blocked with 400 if the admin targets their own account, and logs the action to AdminActionLog.
+Example Response:
+{
+  "id": "...", "email": "...", "role": "user", "is_active": true, ...
+}
+
+ PUT   /api/admin/users/{id}/role/
+Change a user's role
+Auth required: Required — admin role
+Promotes or demotes a user between "user" and "admin". An admin cannot change their own role. The change is recorded in AdminActionLog with the old and new role for auditing.
+Request Body:
+Field	Type	Description
+role	string	Must be "user" or "admin"
+Example Response:
+{
+  "id": "...", "role": "admin", ...
+}
+
+ GET   /api/admin/incidents/
+List all incidents platform-wide
+Auth required: Required — admin role
+Unlike the user-facing incidents list, this returns incidents from every user, with reporter details (user_email, user_name) attached.
+Query / URL Parameters:
+Parameter	Description
+?status=	Filter by status
+?type=	Filter by incident type
+?search=	Search across title, description, location_address, type
+Example Response:
+[
+  {
+    "id": "...", "user": "...", "user_email": "jane@example.com",
+    "user_name": "Jane Wanjiru", "title": "...", "status": "reported", "media": [...]
+  }
+]
+
+ GET   /api/admin/incidents/recent/
+Get the 10 most recently reported incidents
+Auth required: Required — admin role
+A lightweight feed intended for an admin dashboard's "recent activity" widget.
+
+ GET   /api/admin/incidents/stats/
+Get platform-wide incident statistics
+Auth required: Required — admin role
+Returns a single aggregate count per status across all incidents, for admin dashboard summary cards.
+Example Response:
+{
+  "total": 128, "reported": 41, "under_review": 22,
+  "in_progress": 15, "resolved": 44, "rejected": 6
+}
+
+ PUT   /api/admin/incidents/bulk-status/
+Bulk-update the status of multiple incidents
+Auth required: Required — admin role
+Applies a single status change (with an optional shared comment) across a list of incident IDs in one atomic transaction, skipping any incident already at the target status, and writes one summary entry to AdminActionLog for the whole batch.
+Request Body:
+Field	Type	Description
+ids	array of UUID strings	Required, non-empty
+status	string	One of the five valid Incident statuses
+comment	string	Optional, applied to every updated incident's history entry
+Example Response:
+{
+  "message": "Incident statuses updated successfully.",
+  "updated_count": 7, "incidents": [ { ... }, ... ]
+}
+Note: Returns 404 if any of the supplied IDs do not correspond to an existing incident.
+ GET   /api/admin/incidents/{id}/
+Retrieve a single incident (admin view)
+Auth required: Required — admin role
+Same detail as the admin list endpoint's items, for one incident.
+
+ PUT   /api/admin/incidents/{id}/status/
+Update a single incident's status (admin)
+Auth required: Required — admin role
+Equivalent to the owner-facing status-update endpoint, but callable by any admin regardless of who reported the incident.
+Request Body:
+Field	Type	Description
+status	string	Required
+comment	string	Optional
+
+ GET   /api/admin/incidents/{id}/status-history/
+Get an incident's status history (admin)
+Auth required: Required — admin role
+Same as the owner-facing status-history endpoint, but accessible for any incident regardless of ownership.
+
+ 
+7.4 Notifications API — /api/notifications/
+ GET   /api/notifications/
+List the current user's notifications
+Auth required: Required
+Paginated (via CustomPagination — 20 per page by default). Supports filtering to unread only.
+Query / URL Parameters:
+Parameter	Description
+?unread=true	Return only unread notifications
+?page=, ?page_size=	Pagination controls
+Example Response:
+{
+  "count": 34, "next": "...", "previous": null, "page": 1, "total_pages": 2,
+  "results": [ { "id": "...", "type": "status_change", "title": "...", "message": "...", "read": false, "created_at": "..." } ]
+}
+
+ PATCH / PUT   /api/notifications/{id}/read/
+Mark a single notification as read
+Auth required: Required
+Only affects notifications belonging to the caller.
+Example Response:
+{
+  "id": "...", "read": true, ...
+}
+
+ POST   /api/notifications/read-all/
+Mark all of the current user's notifications as read
+Auth required: Required
+
+Example Response:
+{
+  "message": "All notifications marked as read."
+}
+
+ GET   /api/notifications/unread-count/
+Get the current user's unread notification count
+Auth required: Required
+Used to render an unread-count badge in the frontend header/sidebar.
+Example Response:
+{
+  "unread_count": 5
+}
+
+ GET / PUT   /api/notifications/preferences/
+Get or update notification preferences
+Auth required: Required
+GET returns (and lazily creates, if missing) the caller's NotificationPreference row. PUT updates the three channel toggles.
+Request Body:
+Field	Type	Description
+email_enabled	boolean	Optional
+sms_enabled	boolean	Optional
+push_enabled	boolean	Optional
+Example Response:
+{
+  "email_enabled": true, "sms_enabled": false, "push_enabled": true
+}
+
+ DELETE   /api/notifications/all/
+Delete all of the current user's notifications
+Auth required: Required
+
+Example Response:
+{
+  "message": "All notifications deleted."
+}
+
+ DELETE   /api/notifications/{id}/
+Delete a single notification
+Auth required: Required
+Only affects notifications belonging to the caller.
+Example Response:
+{
+  "message": "Notification deleted."
+}
+
+ 
+8. STANDARD RESPONSE & ERROR FORMATS
+8.1 Errors
+A custom DRF exception handler (core/exceptions.py) wraps every non-2xx response in a consistent envelope:
+{
+  "error": true,
+  "message": "<short description>",
+  "details": { ... },      // the original DRF error payload (field-level errors, etc.)
+  "status_code": 400
+}
+Some hand-written views (e.g. login, change-password) return a simpler {"error": "..."} shape directly rather than going through this wrapper — when integrating, handle both shapes defensively.
+8.2 Pagination
+Endpoints using CustomPagination (currently the notifications list) return:
+{
+  "count": 34,
+  "next": "http://.../?page=2",
+  "previous": null,
+  "page": 1,
+  "total_pages": 2,
+  "results": [ ... ]
+}
+Most other list endpoints (incidents, users, admin lists) currently return a plain JSON array with no pagination envelope, even though DRF's global DEFAULT_PAGINATION_CLASS is configured — worth confirming before assuming pagination behaviour on any given list endpoint.
+ 
+9. FILE UPLOADS (CLOUDINARY)
+Incident photos and videos are not uploaded through the Django backend. Instead, the platform uses Cloudinary's signed direct upload pattern:
+1.	The client requests a signature from GET /api/incidents/{id}/upload-signature/, scoped to that incident's folder.
+2.	The client uploads the raw file straight to Cloudinary's API using that signature — the file bytes never touch the Django server.
+3.	Cloudinary returns a secure URL and public_id, which the client then registers against the incident via POST /api/incidents/{id}/images/ or /videos/.
+4.	The backend independently validates the declared mime_type and file_size_bytes against an allow-list (images: jpg/jpeg/png/webp up to 10 MB; videos: mp4/mov/webm up to 50 MB) before saving the IncidentMedia record.
+Deleting media (DELETE .../images/{media_id}/ or .../videos/{media_id}/) currently removes the IncidentMedia database row; core/cloudinary_utils.py also exposes a delete_from_cloudinary(public_id) helper for removing the underlying asset from Cloudinary storage itself.
+ 
+10. SETUP & INSTALLATION
+10.1 Backend
+git clone <backend-repo-url> ajali-backend
+cd ajali-backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+ 
+# create a .env file in the project root (see variables below)
+ 
+python manage.py migrate
+python manage.py createsuperuser   # creates an initial admin account
+python manage.py runserver          # http://localhost:8000
+Required environment variables (read via django-environ / os.getenv in ajali/settings.py):
+Variable	Purpose
+SECRET_KEY	Django cryptographic signing key
+DEBUG	"True"/"False"
+ALLOWED_HOSTS	Comma-separated list of allowed hostnames
+DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT	PostgreSQL connection settings
+CORS_ALLOWED_ORIGINS	Comma-separated list of frontend origins allowed to call the API
+CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET	Cloudinary credentials for media storage
+EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL	SMTP settings for password-reset and welcome emails
+FRONTEND_URL	Base URL used to build the password-reset link sent by email
+10.2 Frontend
+git clone <frontend-repo-url> ajali-frontend
+cd ajali-frontend
+npm install
+ 
+# create a .env file in the project root:
+#   VITE_API_URL=http://localhost:8000/api
+#   VITE_GOOGLE_MAPS_API_KEY=<your Google Maps JS API key>
+ 
+npm start           # runs the Vite dev server (default http://localhost:5173)
+npm run build        # production build
+npm test             # Jest test suite
+The backend's CORS_ALLOWED_ORIGINS must include the frontend's dev URL (http://localhost:5173 by default) or the browser will block API requests.
+ 
+11. KNOWN LIMITATIONS & NOTES
+These are implementation details worth being aware of when extending or defending this project:
+•	The password-reset endpoint (/api/auth/forgot-password/) currently returns the raw reset_token in the JSON response, in addition to emailing it. This is convenient for local testing but should be removed before any production deployment, since it bypasses the email verification step entirely.
+•	List endpoints are inconsistent in whether they return a paginated envelope or a plain array — the notifications list uses CustomPagination, while the incidents and admin list endpoints currently return a plain JSON array despite DRF's global pagination default being configured.
+•	Deleting a user (via /api/auth/users/{id}/ or /api/admin/users/{id}/) is a soft delete (is_active = False), not a permanent removal — the account and its historical incidents remain in the database, which is intentional for audit/history integrity.
+•	The IncidentDetailView queryset is deliberately unfiltered by owner so that permission checks return 403 (not 404) for non-owners — an important design decision to understand if extending this view.
+•	Admin bulk status updates silently skip any incident that is already at the target status, rather than erroring, so "updated_count" in the response may be lower than the number of IDs submitted.
+•	Geocoding relies on the free, rate-limited Nominatim/OpenStreetMap service — high-traffic production use would need a paid geocoding provider or caching layer.
+ 
+APPENDIX A: FULL ENDPOINT QUICK-REFERENCE
+Authentication — /api/auth/
+Method	Path	Auth
+POST	/register/	None
+POST	/login/	None
+POST	/logout/	User
+POST	/refresh/	Refresh token
+GET/PUT	/me/	User
+POST	/change-password/	User
+POST	/forgot-password/	None
+POST	/reset-password/	None
+GET	/users/	Admin
+GET/PUT/DELETE	/users/{id}/	Admin
+Incidents — /api/incidents/
+Method	Path	Auth
+GET/POST	/	User
+GET	/search/	User
+GET	/filter/	User
+GET/PUT/DELETE	/{id}/	Owner
+GET	/{id}/status-history/	Owner
+POST	/{id}/status/	Owner
+POST	/{id}/images/	Owner
+DELETE	/{id}/images/{media_id}/	Owner
+POST	/{id}/videos/	Owner
+DELETE	/{id}/videos/{media_id}/	Owner
+GET	/public/	None
+GET	/geocode/reverse/	User
+GET	/geocode/forward/	User
+GET	/{id}/upload-signature/	Owner
+Admin — /api/admin/
+Method	Path	Auth
+GET	/actions/	Admin
+GET/DELETE	/users/{id}/	Admin
+PUT	/users/{id}/role/	Admin
+GET	/incidents/	Admin
+GET	/incidents/recent/	Admin
+GET	/incidents/stats/	Admin
+PUT	/incidents/bulk-status/	Admin
+GET	/incidents/{id}/	Admin
+PUT	/incidents/{id}/status/	Admin
+GET	/incidents/{id}/status-history/	Admin
+Notifications — /api/notifications/
+Method	Path	Auth
+GET	/	User
+PATCH/PUT	/{id}/read/	User
+POST	/read-all/	User
+GET	/unread-count/	User
+GET/PUT	/preferences/	User
+DELETE	/all/	User
+DELETE	/{id}/	User
+
