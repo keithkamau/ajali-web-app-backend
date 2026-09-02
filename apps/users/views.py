@@ -237,11 +237,8 @@ class UserListView(generics.ListAPIView):
     permission_classes = (IsAdminUser,)
     
     def get_queryset(self):
-        queryset = super().get_queryset()
-        role = self.request.query_params.get('role')
-        if role:
-            queryset = queryset.filter(role=role)
-        return queryset
+        # Return all users regardless of active status
+        return User.objects.all().order_by('-created_at')
 
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
