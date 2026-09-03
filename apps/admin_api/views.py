@@ -1,366 +1,110 @@
-from rest_framework.generics import ListAPIView
-from rest_framework.permissions import IsAuthenticated
-
-from core.permissions import IsAdminUser
-
-from .models import AdminActionLog
-from .serializers import AdminActionLogSerializer
-from rest_framework import serializers
-
-from django.db.models import Q
-from django.shortcuts import get_object_or_404
-from django.db.models import Count
-
-from django.db import transaction
-from rest_framework import status, generics
-from rest_framework.generics import ListAPIView, RetrieveAPIView, RetrieveDestroyAPIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
-from core.permissions import IsAdminUser
-from apps.users.models import User
-
-from apps.incidents.models import (
-    Incident,
-    IncidentStatusHistory,
-)
+from apps.incidents.models import Incident
+from apps.incidents.serializers import IncidentSerializer
 from apps.incidents.services import change_status
+from core.permissions import IsAdminUser
 
-from .models import AdminActionLog
-from .serializers import (
-    AdminActionLogSerializer,
-    AdminUserRoleSerializer,
-    AdminUserSerializer,
-    AdminIncidentSerializer,
-    AdminIncidentStatusSerializer,
-    AdminStatusHistorySerializer,
-    BulkIncidentStatusSerializer,
-)
-
-class AdminActionLogListView(ListAPIView):
-    queryset = AdminActionLog.objects.select_related("admin")
-    serializer_class = AdminActionLogSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-class AdminUserDetailView(RetrieveAPIView):
-    queryset = User.objects.all()
-    serializer_class = AdminUserSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-    lookup_field = "id"
-    lookup_url_kwarg = "id"
-
-class AdminUserRoleUpdateView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def put(self, request, id):
-        try:
-            user = User.objects.get(id=id)
-        except User.DoesNotExist:
-            return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if user.id == request.user.id:
-            return Response(
-                {"detail": "You cannot change your own role."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = AdminUserRoleSerializer(
-            user,
-            data=request.data,
-            partial=False,
-        )
-
-        serializer.is_valid(raise_exception=True)
-
-        old_role = user.role
-
-        with transaction.atomic():
-            serializer.save()
-
-            AdminActionLog.objects.create(
-                admin=request.user,
-                action="update_user_role",
-                details={
-                    "user_id": str(user.id),
-                    "old_role": old_role,
-                    "new_role": user.role,
-                },
-            )
-
-        return Response(
-            AdminUserSerializer(user).data,
-            status=status.HTTP_200_OK,
-        )
-    
-class AdminUserDeleteView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def delete(self, request, id):
-        try:
-            user = User.objects.get(id=id)
-        except User.DoesNotExist:
-            return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if user.id == request.user.id:
-            return Response(
-                {"detail": "You cannot deactivate your own account."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user.is_active = False
-        user.save(update_fields=["is_active", "updated_at"])
-
-        AdminActionLog.objects.create(
-            admin=request.user,
-            action="deactivate_user",
-            details={
-                "user_id": str(user.id),
-                "email": user.email,
-            },
-        )
-
-        return Response(
-            {"detail": "User has been deactivated."},
-            status=status.HTTP_200_OK,
-        )
-
-class AdminUserDetailView(RetrieveDestroyAPIView):
-    queryset = User.objects.all()
-    serializer_class = AdminUserSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-    lookup_field = "id"
-    lookup_url_kwarg = "id"
-
-    def perform_destroy(self, instance):
-        if instance.id == self.request.user.id:
-            raise serializers.ValidationError(
-                "You cannot deactivate your own account."
-            )
-
-        instance.is_active = False
-        instance.save(update_fields=["is_active", "updated_at"])
-
-        AdminActionLog.objects.create(
-            admin=self.request.user,
-            action="deactivate_user",
-            details={
-                "user_id": str(instance.id),
-                "email": instance.email,
-            },
-        )
-
-class AdminStatsView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def get(self, request):
-        return Response({
-            "total": 0,
-            "resolved": 0,
-            "in_progress": 0,
-            "critical": 0,
-        })
 
 class AdminIncidentListView(generics.ListAPIView):
-    serializer_class = AdminIncidentSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    """List all incidents (Admin only)"""
+    serializer_class = IncidentSerializer
+    permission_classes = (IsAdminUser,)
 
     def get_queryset(self):
-        queryset = Incident.objects.all().select_related(
-            "user"
-        ).prefetch_related(
-            "media",
-            "status_history"
-        )
-
-        status_value = self.request.query_params.get("status")
-        incident_type = self.request.query_params.get("type")
-        search = self.request.query_params.get("search")
-
-        if status_value:
-            queryset = queryset.filter(status=status_value)
-
-        if incident_type:
-            queryset = queryset.filter(type=incident_type)
-
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search)
-                | Q(description__icontains=search)
-                | Q(location_address__icontains=search)
-                | Q(type__icontains=search)
-            )
-
+        queryset = Incident.objects.all().prefetch_related("media", "status_history")
+        
+        # Filter by status if provided
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by type if provided
+        type_filter = self.request.query_params.get('type')
+        if type_filter:
+            queryset = queryset.filter(type=type_filter)
+        
         return queryset
 
-class AdminIncidentDetailView(generics.RetrieveAPIView):
-    serializer_class = AdminIncidentSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
 
-    queryset = Incident.objects.all().select_related(
-        "user"
-    ).prefetch_related(
-        "media",
-        "status_history"
-    )
+class AdminIncidentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Get, update, or delete any incident (Admin only)"""
+    queryset = Incident.objects.all()
+    serializer_class = IncidentSerializer
+    permission_classes = (IsAdminUser,)
+    lookup_field = 'id'
+
 
 class AdminIncidentStatusUpdateView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    """Update incident status (Admin only)"""
+    permission_classes = (IsAdminUser,)
 
-    def put(self, request, pk):
-        incident = get_object_or_404(
-            Incident,
-            pk=pk
-        )
-
-        serializer = AdminIncidentStatusSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(raise_exception=True)
-
+    def put(self, request, id):
+        incident = get_object_or_404(Incident, id=id)
+        
+        status_value = request.data.get('status')
+        comment = request.data.get('comment', '')
+        
+        status_mapping = {
+            'under_investigation': 'under_review',
+            'reported': 'reported',
+            'under_review': 'under_review',
+            'in_progress': 'in_progress',
+            'resolved': 'resolved',
+            'rejected': 'rejected',
+            'pending': 'reported',
+        }
+        
+        if status_value in status_mapping:
+            status_value = status_mapping[status_value]
+        
+        valid_statuses = [choice[0] for choice in Incident.Status.choices]
+        if status_value not in valid_statuses:
+            return Response(
+                {"status": [f"'{status_value}' is not a valid choice. Valid choices: {valid_statuses}"]},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         try:
             incident = change_status(
                 incident=incident,
                 changed_by=request.user,
-                **serializer.validated_data
+                new_status=status_value,
+                comment=comment
             )
         except ValueError as error:
             return Response(
                 {"detail": str(error)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        serializer = IncidentSerializer(incident)
+        return Response(serializer.data)
 
-        return Response(
-            AdminIncidentSerializer(incident).data,
-            status=status.HTTP_200_OK
-        )
 
-class AdminIncidentStatusHistoryView(generics.ListAPIView):
-    serializer_class = AdminStatusHistorySerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def get_queryset(self):
-        incident = get_object_or_404(
-            Incident,
-            pk=self.kwargs["pk"]
-        )
-
-        return incident.status_history.select_related(
-            "changed_by"
-        ).all()
-
-class AdminBulkIncidentStatusView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def put(self, request):
-        serializer = BulkIncidentStatusSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(raise_exception=True)
-
-        incident_ids = serializer.validated_data["ids"]
-        new_status = serializer.validated_data["status"]
-        comment = serializer.validated_data.get("comment", "")
-
-        incidents = Incident.objects.filter(
-            id__in=incident_ids
-        )
-
-        if incidents.count() != len(set(incident_ids)):
-            return Response(
-                {
-                    "detail": "One or more incidents were not found."
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        updated_incidents = []
-
-        with transaction.atomic():
-            for incident in incidents:
-                if incident.status == new_status:
-                    continue
-
-                incident = change_status(
-                    incident=incident,
-                    changed_by=request.user,
-                    status=new_status,
-                    comment=comment
-                )
-
-                updated_incidents.append(incident)
-
-            AdminActionLog.objects.create(
-                admin=request.user,
-                action="bulk_update_incident_status",
-                details={
-                    "incident_ids": [
-                        str(incident_id)
-                        for incident_id in incident_ids
-                    ],
-                    "new_status": new_status,
-                    "updated_count": len(updated_incidents),
-                },
-            )
-
-        return Response(
-            {
-                "message": "Incident statuses updated successfully.",
-                "updated_count": len(updated_incidents),
-                "incidents": AdminIncidentSerializer(
-                    updated_incidents,
-                    many=True
-                ).data,
-            },
-            status=status.HTTP_200_OK
-        )
-
-class AdminStatsView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
+class AdminIncidentStatsView(APIView):
+    """Get incident statistics (Admin only)"""
+    permission_classes = (IsAdminUser,)
 
     def get(self, request):
-        stats = Incident.objects.aggregate(
-            total=Count("id"),
-            reported=Count(
-                "id",
-                filter=Q(status=Incident.Status.REPORTED)
-            ),
-            under_review=Count(
-                "id",
-                filter=Q(status=Incident.Status.UNDER_REVIEW)
-            ),
-            in_progress=Count(
-                "id",
-                filter=Q(status=Incident.Status.IN_PROGRESS)
-            ),
-            resolved=Count(
-                "id",
-                filter=Q(status=Incident.Status.RESOLVED)
-            ),
-            rejected=Count(
-                "id",
-                filter=Q(status=Incident.Status.REJECTED)
-            ),
-        )
-
-        return Response(stats)
-
-class AdminRecentIncidentsView(generics.ListAPIView):
-    serializer_class = AdminIncidentSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    def get_queryset(self):
-        return (
-            Incident.objects
-            .select_related("user")
-            .prefetch_related("media")
-            .order_by("-created_at")[:10]
-        )
+        total = Incident.objects.count()
+        reported = Incident.objects.filter(status='reported').count()
+        under_review = Incident.objects.filter(status='under_review').count()
+        in_progress = Incident.objects.filter(status='in_progress').count()
+        resolved = Incident.objects.filter(status='resolved').count()
+        rejected = Incident.objects.filter(status='rejected').count()
+        
+        return Response({
+            'total': total,
+            'reported': reported,
+            'under_review': under_review,
+            'in_progress': in_progress,
+            'resolved': resolved,
+            'rejected': rejected,
+            # For backward compatibility with frontend
+            'pending': reported,
+            'under_investigation': under_review,
+        })
