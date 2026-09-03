@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from decimal import Decimal
 from .models import Incident, IncidentMedia, IncidentStatusHistory
 
 
@@ -31,18 +32,6 @@ class IncidentSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'status', 'created_at', 'updated_at']
-        extra_kwargs = {
-            'location_lat': {
-                'required': True,
-                'allow_null': False,
-                'coerce_to_string': False,
-            },
-            'location_lng': {
-                'required': True,
-                'allow_null': False,
-                'coerce_to_string': False,
-            },
-        }
 
     def get_user_name(self, obj):
         if obj.is_anonymous:
@@ -50,20 +39,47 @@ class IncidentSerializer(serializers.ModelSerializer):
         return obj.user.full_name if obj.user else "Unknown"
 
     def validate_location_lat(self, value):
-        """Validate latitude is within valid range"""
+        """Validate latitude is within valid range - no digit limit validation"""
         if value is None:
             raise serializers.ValidationError("Latitude is required")
-        if value < -90 or value > 90:
+        
+        # Convert to Decimal if needed
+        if not isinstance(value, Decimal):
+            try:
+                value = Decimal(str(value))
+            except:
+                raise serializers.ValidationError("Invalid latitude format")
+        
+        # Only validate range, not digit count
+        if value < Decimal('-90') or value > Decimal('90'):
             raise serializers.ValidationError("Latitude must be between -90 and 90")
+        
         return value
 
     def validate_location_lng(self, value):
-        """Validate longitude is within valid range"""
+        """Validate longitude is within valid range - no digit limit validation"""
         if value is None:
             raise serializers.ValidationError("Longitude is required")
-        if value < -180 or value > 180:
+        
+        # Convert to Decimal if needed
+        if not isinstance(value, Decimal):
+            try:
+                value = Decimal(str(value))
+            except:
+                raise serializers.ValidationError("Invalid longitude format")
+        
+        if value < Decimal('-180') or value > Decimal('180'):
             raise serializers.ValidationError("Longitude must be between -180 and 180")
+        
         return value
+
+    def validate(self, data):
+        """Additional cross-field validation if needed"""
+        if 'location_lat' not in data or data['location_lat'] is None:
+            raise serializers.ValidationError({"location_lat": "Latitude is required"})
+        if 'location_lng' not in data or data['location_lng'] is None:
+            raise serializers.ValidationError({"location_lng": "Longitude is required"})
+        return data
 
 
 class IncidentStatusUpdateSerializer(serializers.Serializer):
