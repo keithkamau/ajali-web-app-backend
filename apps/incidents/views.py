@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import Incident, IncidentMedia
-from .permissions import IsIncidentOwner
+from .permissions import IsIncidentOwner, IsAdminOrOwner
 from .serializers import IncidentMediaSerializer, IncidentSerializer, IncidentStatusHistorySerializer, IncidentStatusUpdateSerializer
 from .services import attach_media, change_status, create_incident, delete_media
 from core.geocoding import forward_geocode, reverse_geocode
@@ -72,15 +72,17 @@ class IncidentFilterView(IncidentListCreateView):
 
 class IncidentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = IncidentSerializer
-    permission_classes = (permissions.IsAuthenticated, IsIncidentOwner)
+    permission_classes = (permissions.IsAuthenticated, IsAdminOrOwner)
 
     def get_queryset(self):
-        return Incident.objects.all().prefetch_related("media", "status_history")
+        if self.request.user.role == 'admin':
+            return Incident.objects.all().prefetch_related("media", "status_history")
+        return Incident.objects.filter(user=self.request.user).prefetch_related("media", "status_history")
 
 
 class IncidentStatusHistoryView(generics.ListAPIView):
     serializer_class = IncidentStatusHistorySerializer
-    permission_classes = (permissions.IsAuthenticated, IsIncidentOwner)
+    permission_classes = (permissions.IsAuthenticated, IsAdminOrOwner)
 
     def get_queryset(self):
         incident = get_object_or_404(Incident, pk=self.kwargs["pk"])
@@ -119,7 +121,6 @@ class IncidentMediaUploadView(generics.GenericAPIView):
         incident = get_object_or_404(Incident, pk=pk)
         self.check_object_permissions(request, incident)
         
-        # Get the file from request
         file = request.FILES.get('image') or request.FILES.get('video')
         if not file:
             return Response(
@@ -127,7 +128,6 @@ class IncidentMediaUploadView(generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Determine media type
         if self.forced_media_type:
             media_type = self.forced_media_type
         elif file.content_type and file.content_type.startswith('image/'):
@@ -137,7 +137,6 @@ class IncidentMediaUploadView(generics.GenericAPIView):
         else:
             media_type = 'image'
         
-        # Upload to Cloudinary
         try:
             folder = f"ajali/incidents/{incident.id}"
             result = upload_to_cloudinary(file, folder=folder)
@@ -148,7 +147,6 @@ class IncidentMediaUploadView(generics.GenericAPIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # Create media record
             media = IncidentMedia.objects.create(
                 incident=incident,
                 media_type=media_type,
