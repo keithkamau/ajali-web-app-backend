@@ -21,17 +21,21 @@ class IncidentSerializer(serializers.ModelSerializer):
     media = IncidentMediaSerializer(many=True, read_only=True)
     status_history = IncidentStatusHistorySerializer(many=True, read_only=True)
     user_name = serializers.SerializerMethodField()
+    status_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
         fields = [
-            'id', 'title', 'description', 'type', 'status',
+            'id', 'title', 'description', 'type', 'status', 'status_display',
             'location_lat', 'location_lng', 'location_address',
             'user', 'user_name', 'is_anonymous',
             'media', 'status_history',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'user', 'status', 'created_at', 'updated_at']
+
+    def get_status_display(self, obj):
+        return dict(Incident.Status.choices).get(obj.status, obj.status)
 
     def get_user_name(self, obj):
         if obj.is_anonymous:
