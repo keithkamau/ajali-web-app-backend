@@ -2,11 +2,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+import logging
 
 from apps.incidents.models import Incident
 from apps.incidents.serializers import IncidentSerializer
 from apps.incidents.services import change_status
 from core.permissions import IsAdminUser
+
+logger = logging.getLogger(__name__)
 
 
 class AdminIncidentListView(generics.ListAPIView):
@@ -41,46 +44,64 @@ class AdminIncidentStatusUpdateView(APIView):
     permission_classes = (IsAdminUser,)
 
     def put(self, request, id):
-        incident = get_object_or_404(Incident, id=id)
-        
-        status_value = request.data.get('status')
-        comment = request.data.get('comment', '')
-        
-        status_mapping = {
-            'under_investigation': 'under_review',
-            'reported': 'reported',
-            'under_review': 'under_review',
-            'in_progress': 'in_progress',
-            'resolved': 'resolved',
-            'rejected': 'rejected',
-            'pending': 'reported',
-        }
-        
-        if status_value in status_mapping:
-            status_value = status_mapping[status_value]
-        
-        valid_statuses = [choice[0] for choice in Incident.Status.choices]
-        if status_value not in valid_statuses:
-            return Response(
-                {"status": [f"'{status_value}' is not a valid choice."]},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
         try:
+            incident = get_object_or_404(Incident, id=id)
+            
+            status_value = request.data.get('status')
+            comment = request.data.get('comment', '')
+            
+            if not status_value:
+                return Response(
+                    {"status": ["Status is required"]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            status_mapping = {
+                'under_investigation': 'under_review',
+                'reported': 'reported',
+                'under_review': 'under_review',
+                'in_progress': 'in_progress',
+                'resolved': 'resolved',
+                'rejected': 'rejected',
+                'pending': 'reported',
+            }
+            
+            if status_value in status_mapping:
+                status_value = status_mapping[status_value]
+            
+            # Validate status is valid
+            valid_statuses = [choice[0] for choice in Incident.Status.choices]
+            if status_value not in valid_statuses:
+                return Response(
+                    {"status": [f"'{status_value}' is not a valid choice."]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Change status
+            logger.info(f"Admin {request.user.email} changing status of incident {id} to {status_value}")
+            
             incident = change_status(
                 incident=incident,
                 changed_by=request.user,
                 new_status=status_value,
                 comment=comment
             )
+            
+            serializer = IncidentSerializer(incident)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
         except ValueError as error:
+            logger.error(f"Status update error: {error}")
             return Response(
                 {"detail": str(error)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        serializer = IncidentSerializer(incident)
-        return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Unexpected error in status update: {e}")
+            return Response(
+                {"detail": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class AdminIncidentStatsView(APIView):

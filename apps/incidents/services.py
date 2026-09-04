@@ -24,10 +24,14 @@ def create_incident(*, user, validated_data):
 
 @transaction.atomic
 def change_status(*, incident, changed_by, new_status, comment=""):
+    """
+    Change the status of an incident and create notification
+    """
     if new_status == incident.status:
         raise ValueError("The new status must differ from the current status.")
     
     old_status = incident.status
+    
     incident.status = new_status
     incident.save(update_fields=("status", "updated_at"))
     
@@ -42,19 +46,22 @@ def change_status(*, incident, changed_by, new_status, comment=""):
         sequence=next_sequence
     )
     
-    status_display = dict(Incident.Status.choices).get(new_status, new_status)
-    Notification.objects.create(
-        user=incident.user,
-        type='status_change',
-        title='Incident Status Updated',
-        message=f'Your incident "{incident.title}" status changed to {status_display}',
-        data={
-            'incident_id': str(incident.id),
-            'old_status': old_status,
-            'new_status': new_status,
-            'comment': comment
-        }
-    )
+    try:
+        status_display = dict(Incident.Status.choices).get(new_status, new_status)
+        Notification.objects.create(
+            user=incident.user,
+            type='status_change',
+            title='Incident Status Updated',
+            message=f'Your incident "{incident.title}" status changed to {status_display}',
+            data={
+                'incident_id': str(incident.id),
+                'old_status': old_status,
+                'new_status': new_status,
+                'comment': comment
+            }
+        )
+    except Exception as e:
+        print(f"Notification creation failed: {e}")
     
     return incident
 
