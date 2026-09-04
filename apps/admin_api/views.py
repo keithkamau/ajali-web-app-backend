@@ -17,12 +17,10 @@ class AdminIncidentListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = Incident.objects.all().prefetch_related("media", "status_history")
         
-        # Filter by status if provided
         status_filter = self.request.query_params.get('status')
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         
-        # Filter by type if provided
         type_filter = self.request.query_params.get('type')
         if type_filter:
             queryset = queryset.filter(type=type_filter)
@@ -104,7 +102,6 @@ class AdminIncidentStatsView(APIView):
             'in_progress': in_progress,
             'resolved': resolved,
             'rejected': rejected,
-            # For backward compatibility with frontend
             'pending': reported,
             'under_investigation': under_review,
         })
