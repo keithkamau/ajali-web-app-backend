@@ -1,6 +1,7 @@
 from django.db import transaction
 from core.validators import validate_media_upload
 from .models import Incident, IncidentMedia, IncidentStatusHistory
+from apps.notifications.models import Notification
 
 
 @transaction.atomic
@@ -40,6 +41,21 @@ def change_status(*, incident, changed_by, new_status, comment=""):
         comment=comment or f"Status changed from {old_status} to {new_status}",
         sequence=next_sequence
     )
+    
+    status_display = dict(Incident.Status.choices).get(new_status, new_status)
+    Notification.objects.create(
+        user=incident.user,
+        type='status_change',
+        title='Incident Status Updated',
+        message=f'Your incident "{incident.title}" status changed to {status_display}',
+        data={
+            'incident_id': str(incident.id),
+            'old_status': old_status,
+            'new_status': new_status,
+            'comment': comment
+        }
+    )
+    
     return incident
 
 
