@@ -5,8 +5,9 @@ from django.conf.urls.static import static
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import permissions
-from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+from rest_framework.documentation import include_docs_urls
 
 
 @csrf_exempt
@@ -47,27 +48,20 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
-    # Root
     path('', root_view, name='root'),
-    
-    # Admin
     path('admin/', admin.site.urls),
-    
-    # Health
     path('health/', simple_health, name='health'),
     path('api/health/', simple_health, name='api_health'),
-    
-    # API endpoints
     path('api/auth/', include('apps.users.urls')),
     path('api/incidents/', include('apps.incidents.urls')),
     path('api/admin/', include('apps.admin_api.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
+    path('docs/', include_docs_urls(title='Ajali API')),
     
-    # API Documentation
+    # Swagger/ReDoc
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
-    path('docs/', include_docs_urls(title='Ajali API')),
 ]
 
 if settings.DEBUG:
